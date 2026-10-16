@@ -10,6 +10,12 @@ export interface ChatMessage {
    * cleared and an error shown separately.
    */
   readonly isStreaming?: boolean | undefined;
+  /**
+   * Display attribution, present only when actually known (live turns).
+   * History entries omit it rather than fabricating a model or timestamp.
+   */
+  readonly model?: string | undefined;
+  readonly timestamp?: string | undefined;
 }
 
 export type ChatStatus = "idle" | "loading" | "error";

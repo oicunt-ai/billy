@@ -14,6 +14,7 @@ import {
   resolveTokenFile,
 } from "./gateway-models.ts";
 import { messageContentToText, toDisplayRole } from "../components/chat/message-content.ts";
+import { MAX_CONVERSATION_TITLE_LENGTH } from "../components/chat/conversation-utils.ts";
 
 if (typeof window !== "undefined") {
   throw new Error("src/lib/gateway-chat.ts is server-only");
@@ -39,7 +40,7 @@ const MAX_RESPONSE_TEXT_BYTES = 4 * 1024;
 
 export const MAX_USER_MESSAGE_LENGTH = 8000;
 const MAX_CONVERSATION_ID_LENGTH = 256;
-const MAX_TITLE_LENGTH = 200;
+const MAX_TITLE_LENGTH = MAX_CONVERSATION_TITLE_LENGTH;
 
 export interface PublicConversation {
   readonly id: string;
@@ -48,6 +49,8 @@ export interface PublicConversation {
   readonly messageCount: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Authoritative pin state; absent in pre-1.2 responses, so never assumed. */
+  readonly pinned: boolean;
 }
 
 export interface ValidCompletionInput {
@@ -195,6 +198,7 @@ function toPublicConversation(data: unknown): PublicConversation {
       typeof record["messageCount"] === "number" ? record["messageCount"] : 0,
     createdAt: typeof record["createdAt"] === "string" ? record["createdAt"] : "",
     updatedAt: typeof record["updatedAt"] === "string" ? record["updatedAt"] : "",
+    pinned: record["pinned"] === true,
   };
 }
 
@@ -419,38 +423,46 @@ export interface ConversationList {
   readonly hasMore: boolean;
 }
 
-async function gatewayGet(
+interface GatewayRequest {
+  readonly method: "GET" | "PATCH" | "DELETE";
+  readonly path: string;
+  readonly action: string;
+  readonly body?: unknown;
+}
+
+async function gatewayRequest(
   deps: ChatDeps,
-  path: string,
-  action: string,
-  timeoutMs: number,
+  request: GatewayRequest,
 ): Promise<unknown> {
   const { baseUrl, token } = await resolveGatewayAuth(deps);
-  const url = new URL(path, baseUrl);
+  const url = new URL(request.path, baseUrl);
   const fetchFn = deps.fetchFn ?? fetch;
+  const hasBody = request.body !== undefined;
   let response: Response;
   try {
     response = await fetchFn(url.toString(), {
-      method: "GET",
+      method: request.method,
       headers: {
         Accept: "application/json",
+        ...(hasBody ? { "Content-Type": "application/json" } : {}),
         Authorization: `Bearer ${token}`,
       },
-      signal: AbortSignal.timeout(timeoutMs),
+      ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
+      signal: AbortSignal.timeout(CONVERSATION_TIMEOUT_MS),
     });
   } catch (error) {
     if (isTimeout(error)) {
-      throw new GatewayModelsError(504, "GATEWAY_TIMEOUT", `${action} timed out`);
+      throw new GatewayModelsError(504, "GATEWAY_TIMEOUT", `${request.action} timed out`);
     }
-    throw new GatewayModelsError(502, "GATEWAY_UNREACHABLE", `${action} failed`);
+    throw new GatewayModelsError(502, "GATEWAY_UNREACHABLE", `${request.action} failed`);
   }
   if (!response.ok) {
-    throw mapStatus(response.status, await readSafeErrorText(response), action);
+    throw mapStatus(response.status, await readSafeErrorText(response), request.action);
   }
   try {
     return await response.json();
   } catch {
-    throw new GatewayModelsError(502, "BAD_RESPONSE", `${action} was unreadable`);
+    throw new GatewayModelsError(502, "BAD_RESPONSE", `${request.action} was unreadable`);
   }
 }
 
@@ -460,7 +472,11 @@ async function gatewayGet(
  * as reported and documented as a first-page window.
  */
 export async function listConversations(deps: ChatDeps = {}): Promise<ConversationList> {
-  const body = await gatewayGet(deps, GATEWAY_CONVERSATIONS_PATH, "Conversation listing", 10_000);
+  const body = await gatewayRequest(deps, {
+    method: "GET",
+    path: GATEWAY_CONVERSATIONS_PATH,
+    action: "Conversation listing",
+  });
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new GatewayModelsError(502, "BAD_RESPONSE", "Conversation listing was unreadable");
   }
@@ -537,12 +553,11 @@ export async function listMessages(
 ): Promise<MessageHistory> {
   const { conversationId, ...authDeps } = deps;
   const id = validateConversationId(conversationId);
-  const body = await gatewayGet(
-    authDeps,
-    `${GATEWAY_CONVERSATIONS_PATH}/${encodeURIComponent(id)}/messages`,
-    "Message listing",
-    10_000,
-  );
+  const body = await gatewayRequest(authDeps, {
+    method: "GET",
+    path: `${GATEWAY_CONVERSATIONS_PATH}/${encodeURIComponent(id)}/messages`,
+    action: "Message listing",
+  });
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new GatewayModelsError(502, "BAD_RESPONSE", "Message listing was unreadable");
   }
@@ -563,4 +578,99 @@ export async function listMessages(
   }
   messages.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
   return { messages, hasMore: record["hasMore"] === true };
+}
+
+/** Title accepted by the public conversation contract, trimmed. */
+export function validateConversationTitle(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.trim() === "" ||
+    value.trim().length > MAX_TITLE_LENGTH
+  ) {
+    throw new GatewayModelsError(
+      400,
+      "INVALID_REQUEST",
+      "Conversation title is invalid",
+    );
+  }
+  return value.trim();
+}
+
+export interface UpdateConversationInput {
+  readonly title?: string | undefined;
+  readonly pinned?: boolean | undefined;
+}
+
+/**
+ * Rename and/or pin a conversation. Pin state is stored with the
+ * conversation upstream, so it survives reloads, sign-outs and other
+ * devices — never browser storage.
+ */
+export async function updateConversation(
+  deps: ChatDeps & {
+    readonly conversationId: unknown;
+    readonly title?: unknown;
+    readonly pinned?: unknown;
+  },
+): Promise<PublicConversation> {
+  const { conversationId, title, pinned, ...authDeps } = deps;
+  const id = validateConversationId(conversationId);
+  if (title === undefined && pinned === undefined) {
+    throw new GatewayModelsError(400, "INVALID_REQUEST", "Conversation update is empty");
+  }
+  if (pinned !== undefined && typeof pinned !== "boolean") {
+    throw new GatewayModelsError(400, "INVALID_REQUEST", "Conversation pin state is invalid");
+  }
+  const body: UpdateConversationInput = {
+    ...(title === undefined ? {} : { title: validateConversationTitle(title) }),
+    ...(pinned === undefined ? {} : { pinned }),
+  };
+  const payload = await gatewayRequest(authDeps, {
+    method: "PATCH",
+    path: `${GATEWAY_CONVERSATIONS_PATH}/${encodeURIComponent(id)}`,
+    action: "Conversation update",
+    body,
+  });
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new GatewayModelsError(502, "BAD_RESPONSE", "Conversation update was unreadable");
+  }
+  return toPublicConversation((payload as Record<string, unknown>)["data"]);
+}
+
+export interface DeletedConversation {
+  readonly deleted: true;
+  readonly conversationId: string;
+}
+
+/**
+ * Soft-delete a conversation: Memory keeps the row recoverable but it
+ * leaves the user's history. A partial response is never reported as
+ * success.
+ */
+export async function deleteConversation(
+  deps: ChatDeps & { readonly conversationId: unknown },
+): Promise<DeletedConversation> {
+  const { conversationId, ...authDeps } = deps;
+  const id = validateConversationId(conversationId);
+  const payload = await gatewayRequest(authDeps, {
+    method: "DELETE",
+    path: `${GATEWAY_CONVERSATIONS_PATH}/${encodeURIComponent(id)}`,
+    action: "Conversation deletion",
+  });
+  const data =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)["data"]
+      : undefined;
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  if (record["deleted"] !== true || record["conversationId"] !== id) {
+    throw new GatewayModelsError(
+      502,
+      "BAD_RESPONSE",
+      "Conversation deletion was unreadable",
+    );
+  }
+  return { deleted: true, conversationId: id };
 }

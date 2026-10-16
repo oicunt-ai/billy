@@ -12,6 +12,24 @@ export interface PublicModel {
   readonly status: string;
 }
 
+export type ModelPickerStatus =
+  | "loading"
+  | "ready"
+  | "login-required"
+  | "error"
+  | "disabled";
+
+/**
+ * Whether the picker must render an explanatory note instead of the
+ * `<select>`. Loading and ready states always render the selector itself
+ * (possibly disabled/empty), so gating on anything other than an explicit
+ * status check — e.g. a JSX-null comparison, which is never null — hides
+ * the control entirely.
+ */
+export function isModelPickerNoteStatus(status: ModelPickerStatus): boolean {
+  return status === "login-required" || status === "disabled" || status === "error";
+}
+
 const SELECTABLE_STATUSES: readonly string[] = ["available", "degraded"];
 
 /**

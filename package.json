@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "dev:auth": "node scripts/dev-auth/dev-issuer.mjs",
     "test:auth": "node --test scripts/dev-auth/dev-issuer.test.mjs",
-    "test": "node --test src/lib/dev-auth.test.mjs src/lib/gateway-models.test.mjs src/lib/gateway-chat.test.mjs src/components/chat/chat-client.test.mjs scripts/dev-auth/dev-issuer.test.mjs"
+    "test": "node --test src/lib/dev-auth.test.mjs src/lib/gateway-models.test.mjs src/lib/gateway-chat.test.mjs src/components/chat/chat-client.test.mjs src/components/chat/message-markdown-utils.test.mjs src/components/chat/contrast.test.mjs src/components/chat/model-utils.test.mjs src/components/chat/conversation-utils.test.mjs scripts/dev-auth/dev-issuer.test.mjs"
   },
   "dependencies": {
     "next": "16.4.0",

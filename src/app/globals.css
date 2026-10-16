@@ -1,26 +1,132 @@
 @import "tailwindcss";
 
+/* BILLY V1 monochrome tokens (approved design lock). */
+@theme {
+  --color-ink-950: #0b0b0c; /* black sidebar, strong actions */
+  --color-ink-900: #1f2023; /* code blocks, dark surfaces */
+  --color-paper: #fafaf9; /* main canvas */
+  --color-raised: #ffffff; /* composer, dialogs, menus */
+  --color-wash: #f3f3f3; /* subtle states, user messages */
+  --color-ink: #171719; /* primary text */
+  --color-muted: #696b70; /* metadata, hints */
+  --color-hairline: #e7e7e7; /* dividers, control outlines */
+  --color-silver: #b9bbc0; /* small brand details */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Assistant Markdown body: text-first, restrained, content-focused. */
+.markdown-body {
+  overflow-wrap: break-word;
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  color: var(--color-ink);
+}
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+.markdown-body p {
+  margin: 0.85em 0;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.9em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 1.5em 0 0.5em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  color: var(--color-ink);
+}
+.markdown-body h1 {
+  font-size: 1.375rem;
+}
+.markdown-body h2 {
+  font-size: 1.25rem;
+}
+.markdown-body h3 {
+  font-size: 1.125rem;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.4em;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li + li {
+  margin-top: 0.25em;
+}
+.markdown-body a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown-body code:not(pre code) {
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-wash);
+  padding: 0.1em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.markdown-body pre {
+  overflow-x: auto;
+  border-radius: 12px;
+  background: var(--color-ink-900);
+  color: #f4f4f5;
+  padding: 0.85rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-body blockquote {
+  margin: 0.75em 0;
+  border-left: 3px solid var(--color-hairline);
+  padding-left: 0.9em;
+  color: var(--color-muted);
+}
+.markdown-body table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--color-hairline);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+
+/* Respect reduced motion for spinners and transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

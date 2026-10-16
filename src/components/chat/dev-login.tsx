@@ -45,7 +45,7 @@ export function DevLogin({ onSuccess }: DevLoginProps) {
   }
 
   return (
-    <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-4 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="border-b border-hairline bg-raised px-4 py-4 sm:px-6">
       <form
         aria-label="Developer sign-in"
         onSubmit={handleSubmit}
@@ -54,7 +54,7 @@ export function DevLogin({ onSuccess }: DevLoginProps) {
         <div className="flex-1">
           <label
             htmlFor="billy-dev-secret"
-            className="text-xs font-semibold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+            className="text-xs font-semibold tracking-wider text-muted uppercase"
           >
             Developer access secret
           </label>
@@ -66,23 +66,23 @@ export function DevLogin({ onSuccess }: DevLoginProps) {
             disabled={busy}
             onChange={(event) => setSecret(event.target.value)}
             placeholder="Required for local model catalog access"
-            className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+            className="mt-1 w-full rounded-lg border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-muted focus:outline-none disabled:opacity-60"
           />
         </div>
         <button
           type="submit"
           disabled={busy || secret === ""}
-          className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="rounded-full bg-ink-950 px-4 py-2 text-sm font-semibold text-zinc-50 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
       {error !== null ? (
-        <p role="alert" className="mx-auto mt-2 w-full max-w-3xl text-sm text-red-700 dark:text-red-300">
+        <p role="alert" className="mx-auto mt-2 w-full max-w-3xl text-sm text-red-700">
           {error}
         </p>
       ) : (
-        <p className="mx-auto mt-2 w-full max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mx-auto mt-2 w-full max-w-3xl text-xs text-muted">
           Local development only — checked against{" "}
           <code className="font-mono">BILLY_DEV_ACCESS_SECRET</code> on the
           server. Nothing leaves this machine.

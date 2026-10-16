@@ -15,9 +15,11 @@ import {
   GatewayModelsError,
   MAX_USER_MESSAGE_LENGTH,
   createConversation,
+  deleteConversation,
   listConversations,
   listMessages,
   openCompletionStream,
+  updateConversation,
   validateCompletionInput,
   validateConversationId,
 } from "./gateway-chat.ts";
@@ -46,6 +48,7 @@ function upstreamConversation() {
       messageCount: 0,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
+      pinned: true,
       tenantId: "hidden-tenant",
       internalNotes: "must not pass through",
     },
@@ -72,10 +75,12 @@ describe("createConversation", () => {
     assert.deepEqual(sent, {});
     assert.ok(!("id" in sent) && !("conversationId" in sent));
     assert.equal(conversation.id, "conv_server_generated");
+    assert.equal(conversation.pinned, true);
     assert.deepEqual(Object.keys(conversation).sort(), [
       "createdAt",
       "id",
       "messageCount",
+      "pinned",
       "status",
       "title",
       "updatedAt",
@@ -243,6 +248,7 @@ function upstreamConversationList() {
           messageCount: 4,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-02T00:00:00.000Z",
+          pinned: true,
           tenantId: "hidden-tenant",
           userId: "hidden-user",
         },
@@ -316,6 +322,154 @@ function upstreamMessages() {
   };
 }
 
+describe("updateConversation", () => {
+  it("PATCHes only the given fields and projects the server copy", async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse(200, {
+        success: true,
+        data: { ...upstreamConversation().data, title: "Renamed" },
+      });
+    };
+    const base = {
+      fetchFn,
+      readTokenFile: async () => FIXTURE_TOKEN,
+      gatewayUrl: GATEWAY_URL,
+    };
+
+    const renamed = await updateConversation({
+      ...base,
+      conversationId: CONVERSATION_ID,
+      title: "  Renamed  ",
+    });
+    assert.equal(calls[0].url, `${GATEWAY_URL}${GATEWAY_CONVERSATIONS_PATH}/${CONVERSATION_ID}`);
+    assert.equal(calls[0].init.method, "PATCH");
+    assert.deepEqual(JSON.parse(calls[0].init.body), { title: "Renamed" });
+    assert.equal(renamed.title, "Renamed");
+
+    const pinned = await updateConversation({
+      ...base,
+      conversationId: CONVERSATION_ID,
+      pinned: false,
+    });
+    assert.deepEqual(JSON.parse(calls[1].init.body), { pinned: false });
+    assert.equal(pinned.pinned, true);
+  });
+
+  it("rejects invalid updates without calling upstream", async () => {
+    let calls = 0;
+    const base = {
+      fetchFn: async () => {
+        calls += 1;
+        return jsonResponse(200, upstreamConversation());
+      },
+      readTokenFile: async () => FIXTURE_TOKEN,
+      gatewayUrl: GATEWAY_URL,
+      conversationId: CONVERSATION_ID,
+    };
+    const bad = [
+      {},
+      { title: "" },
+      { title: "   " },
+      { title: "x".repeat(201) },
+      { title: 42 },
+      { pinned: "yes" },
+    ];
+    for (const patch of bad) {
+      await assert.rejects(
+        updateConversation({ ...base, ...patch }),
+        (error) => error instanceof GatewayModelsError && error.status === 400,
+        JSON.stringify(patch),
+      );
+    }
+    await assert.rejects(
+      updateConversation({ ...base, conversationId: "", title: "x" }),
+      (error) => error instanceof GatewayModelsError && error.status === 400,
+    );
+    assert.equal(calls, 0);
+  });
+
+  it("maps a rejected update and unreadable replies", async () => {
+    const base = {
+      readTokenFile: async () => FIXTURE_TOKEN,
+      gatewayUrl: GATEWAY_URL,
+      conversationId: CONVERSATION_ID,
+      title: "x",
+    };
+    const forbidden = await updateConversation({
+      ...base,
+      fetchFn: async () =>
+        jsonResponse(404, { success: false, error: { code: "VALIDATION_ERROR" } }),
+    }).then(
+      () => null,
+      (error) => error,
+    );
+    assert.ok(forbidden instanceof GatewayModelsError);
+    assert.equal(forbidden.status, 404);
+    const unreadable = await updateConversation({
+      ...base,
+      fetchFn: async () => jsonResponse(200, { success: true }),
+    }).then(
+      () => null,
+      (error) => error,
+    );
+    assert.ok(unreadable instanceof GatewayModelsError);
+    assert.equal(unreadable.code, "BAD_RESPONSE");
+  });
+});
+
+describe("deleteConversation", () => {
+  it("DELETEs the fixed path and confirms the server's answer", async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse(200, {
+        success: true,
+        data: { deleted: true, conversationId: CONVERSATION_ID, hard: false },
+      });
+    };
+    const result = await deleteConversation({
+      fetchFn,
+      readTokenFile: async () => FIXTURE_TOKEN,
+      gatewayUrl: GATEWAY_URL,
+      conversationId: CONVERSATION_ID,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `${GATEWAY_URL}${GATEWAY_CONVERSATIONS_PATH}/${CONVERSATION_ID}`);
+    assert.equal(calls[0].init.method, "DELETE");
+    assert.equal(calls[0].init.body, undefined);
+    assert.deepEqual(result, { deleted: true, conversationId: CONVERSATION_ID });
+  });
+
+  it("never reports success on a partial or failed response", async () => {
+    const base = {
+      readTokenFile: async () => FIXTURE_TOKEN,
+      gatewayUrl: GATEWAY_URL,
+      conversationId: CONVERSATION_ID,
+    };
+    const partial = await deleteConversation({
+      ...base,
+      fetchFn: async () => jsonResponse(200, { success: true, data: { deleted: true } }),
+    }).then(
+      () => null,
+      (error) => error,
+    );
+    assert.ok(partial instanceof GatewayModelsError);
+    assert.equal(partial.code, "BAD_RESPONSE");
+    const denied = await deleteConversation({
+      ...base,
+      fetchFn: async () =>
+        jsonResponse(403, { success: false, error: { code: "FORBIDDEN" } }),
+    }).then(
+      () => null,
+      (error) => error,
+    );
+    assert.ok(denied instanceof GatewayModelsError);
+    assert.equal(denied.status, 403);
+  });
+});
+
 describe("validateConversationId", () => {
   it("accepts server-shaped IDs and rejects the rest without network", () => {
     assert.equal(validateConversationId("conv_abc123"), "conv_abc123");
@@ -351,10 +505,13 @@ describe("listConversations", () => {
       "createdAt",
       "id",
       "messageCount",
+      "pinned",
       "status",
       "title",
       "updatedAt",
     ]);
+    assert.equal(result.conversations[0].pinned, true);
+    assert.equal(result.conversations[1].pinned, false);
     assert.ok(!JSON.stringify(result).includes(FIXTURE_TOKEN));
     assert.ok(!JSON.stringify(result).includes("hidden-tenant"));
   });
